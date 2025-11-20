@@ -1,0 +1,5 @@
+{
+  "name": "Bullseye - Precision Archery",
+  "description": "A sleek, minimalist archery scoring PWA for tracking ends, arrows, and sessions with visual analytics.",
+  "requestFramePermissions": []
+}
