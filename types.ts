@@ -39,3 +39,33 @@ export interface Stats {
   tenCount: number;
   missCount: number;
 }
+
+// --- Profile & Equipment ---
+
+export interface SightMark {
+  distance: number;
+  setting: string;
+}
+
+export interface ArrowSetup {
+  id: string;
+  name: string;
+  spine: string;
+  length: string;
+  pointWeight: string;
+  fletching: string;
+}
+
+export interface Equipment {
+  bowName: string;
+  riser: string;
+  limbs: string;
+  poundage: string;
+  sightMarks: SightMark[];
+  arrows: ArrowSetup[];
+}
+
+export interface UserProfile {
+  name: string;
+  equipment: Equipment;
+}

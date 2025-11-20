@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, useNavigate, useLocation, Navigate, useParams } from 'react-router-dom';
-import { Plus, History, BarChart2, ChevronLeft, ArrowRight, FileText, X, RotateCcw, Undo2, Edit2, Target, List } from 'lucide-react';
-import { Session, End, ArrowShot, TargetFaceType } from './types';
+import { Plus, History, BarChart2, ChevronLeft, ArrowRight, FileText, X, RotateCcw, Undo2, Edit2, Target, List, Settings, User, Trash2 } from 'lucide-react';
+import { Session, End, ArrowShot, TargetFaceType, UserProfile, SightMark, ArrowSetup } from './types';
 import { DEFAULT_ARROWS_PER_END, DEFAULT_ENDS } from './constants';
-import { saveSession, getSessions, calculateSessionScore, deleteSession, updateSession } from './services/storage';
+import { saveSession, getSessions, calculateSessionScore, deleteSession, updateSession, getUserProfile, saveUserProfile } from './services/storage';
 import TargetVisual from './components/TargetVisual';
 import DialPad from './components/DialPad';
 import SwipeableRow from './components/SwipeableRow';
@@ -66,13 +66,230 @@ const ScoreSheetRow = ({ end, endNumber, totalEnds, isCurrent, onClickArrow }: {
   );
 };
 
+// --- Profile Page ---
+
+const ProfilePage = () => {
+  const navigate = useNavigate();
+  const [profile, setProfile] = useState<UserProfile>(getUserProfile());
+  const [activeTab, setActiveTab] = useState<'general' | 'sight' | 'arrows'>('general');
+
+  const handleSave = () => {
+    saveUserProfile(profile);
+    navigate('/dashboard');
+  };
+
+  const updateEquipment = (key: keyof UserProfile['equipment'], value: any) => {
+    setProfile(prev => ({
+      ...prev,
+      equipment: { ...prev.equipment, [key]: value }
+    }));
+  };
+
+  const addSightMark = () => {
+    const newMark: SightMark = { distance: 0, setting: '' };
+    updateEquipment('sightMarks', [...profile.equipment.sightMarks, newMark]);
+  };
+
+  const removeSightMark = (index: number) => {
+    const marks = [...profile.equipment.sightMarks];
+    marks.splice(index, 1);
+    updateEquipment('sightMarks', marks);
+  };
+
+  const updateSightMark = (index: number, field: keyof SightMark, value: any) => {
+    const marks = [...profile.equipment.sightMarks];
+    marks[index] = { ...marks[index], [field]: value };
+    updateEquipment('sightMarks', marks);
+  };
+
+  const addArrow = () => {
+    const newArrow: ArrowSetup = { id: crypto.randomUUID(), name: 'New Arrow', spine: '', length: '', pointWeight: '', fletching: '' };
+    updateEquipment('arrows', [...profile.equipment.arrows, newArrow]);
+  };
+
+  const removeArrow = (index: number) => {
+     const arrows = [...profile.equipment.arrows];
+     arrows.splice(index, 1);
+     updateEquipment('arrows', arrows);
+  };
+
+  const updateArrow = (index: number, field: keyof ArrowSetup, value: any) => {
+    const arrows = [...profile.equipment.arrows];
+    arrows[index] = { ...arrows[index], [field]: value };
+    updateEquipment('arrows', arrows);
+  };
+
+  return (
+    <div className="min-h-screen bg-zinc-950 p-6 pb-24">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center">
+           <button onClick={() => navigate('/dashboard')} className="p-2 -ml-2 text-zinc-400 hover:text-white"><ChevronLeft /></button>
+           <h1 className="text-2xl font-bold text-white ml-2">Archer Profile</h1>
+        </div>
+        <button onClick={handleSave} className="text-emerald-500 font-bold text-sm">Save</button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-2 mb-6 border-b border-zinc-800 pb-1 overflow-x-auto">
+        {['general', 'sight', 'arrows'].map(tab => (
+          <button 
+            key={tab}
+            onClick={() => setActiveTab(tab as any)}
+            className={`px-4 py-2 text-sm font-bold capitalize whitespace-nowrap ${activeTab === tab ? 'text-emerald-500 border-b-2 border-emerald-500' : 'text-zinc-500'}`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'general' && (
+        <div className="space-y-6 animate-in fade-in">
+          <div className="space-y-2">
+             <label className="text-zinc-500 text-xs uppercase font-bold">Name</label>
+             <input 
+               value={profile.name}
+               onChange={e => setProfile({...profile, name: e.target.value})}
+               className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-white focus:border-emerald-500 outline-none"
+               placeholder="Your Name"
+             />
+          </div>
+          <div className="space-y-4">
+             <h3 className="text-white font-bold border-b border-zinc-800 pb-2">Equipment</h3>
+             <div className="grid grid-cols-1 gap-4">
+               <div>
+                 <label className="text-zinc-500 text-xs uppercase font-bold">Bow Name</label>
+                 <input 
+                   value={profile.equipment.bowName}
+                   onChange={e => updateEquipment('bowName', e.target.value)}
+                   className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white focus:border-emerald-500 outline-none"
+                 />
+               </div>
+               <div className="grid grid-cols-2 gap-4">
+                 <div>
+                   <label className="text-zinc-500 text-xs uppercase font-bold">Riser</label>
+                   <input 
+                     value={profile.equipment.riser}
+                     onChange={e => updateEquipment('riser', e.target.value)}
+                     className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white focus:border-emerald-500 outline-none"
+                   />
+                 </div>
+                 <div>
+                   <label className="text-zinc-500 text-xs uppercase font-bold">Limbs</label>
+                   <input 
+                     value={profile.equipment.limbs}
+                     onChange={e => updateEquipment('limbs', e.target.value)}
+                     className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white focus:border-emerald-500 outline-none"
+                   />
+                 </div>
+               </div>
+               <div>
+                 <label className="text-zinc-500 text-xs uppercase font-bold">Poundage</label>
+                 <input 
+                   value={profile.equipment.poundage}
+                   onChange={e => updateEquipment('poundage', e.target.value)}
+                   className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white focus:border-emerald-500 outline-none"
+                   placeholder="e.g. 36#"
+                 />
+               </div>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'sight' && (
+        <div className="space-y-4 animate-in fade-in">
+           <div className="flex justify-between items-center">
+             <h3 className="text-white font-bold">Sight Marks</h3>
+             <button onClick={addSightMark} className="text-emerald-500 text-sm font-bold flex items-center gap-1"><Plus size={16} /> Add</button>
+           </div>
+           {profile.equipment.sightMarks.length === 0 && (
+             <div className="text-zinc-600 text-center py-8 text-sm">No sight marks added.</div>
+           )}
+           <div className="space-y-2">
+             {profile.equipment.sightMarks.map((mark, i) => (
+               <div key={i} className="flex gap-2 items-center">
+                  <div className="w-24">
+                    <input 
+                      type="number"
+                      value={mark.distance}
+                      onChange={e => updateSightMark(i, 'distance', parseInt(e.target.value) || 0)}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-white text-center"
+                      placeholder="Dist"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <input 
+                      type="text"
+                      value={mark.setting}
+                      onChange={e => updateSightMark(i, 'setting', e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-white"
+                      placeholder="Setting (e.g. 4.2)"
+                    />
+                  </div>
+                  <button onClick={() => removeSightMark(i)} className="p-2 text-red-500"><Trash2 size={18}/></button>
+               </div>
+             ))}
+           </div>
+        </div>
+      )}
+
+      {activeTab === 'arrows' && (
+        <div className="space-y-4 animate-in fade-in">
+           <div className="flex justify-between items-center">
+             <h3 className="text-white font-bold">Arrow Setups</h3>
+             <button onClick={addArrow} className="text-emerald-500 text-sm font-bold flex items-center gap-1"><Plus size={16} /> Add</button>
+           </div>
+           {profile.equipment.arrows.length === 0 && (
+             <div className="text-zinc-600 text-center py-8 text-sm">No arrows configured.</div>
+           )}
+           <div className="space-y-4">
+             {profile.equipment.arrows.map((arrow, i) => (
+               <div key={arrow.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-3 relative">
+                  <button onClick={() => removeArrow(i)} className="absolute top-2 right-2 p-2 text-red-500"><Trash2 size={16}/></button>
+                  <div>
+                    <label className="text-zinc-500 text-[10px] uppercase font-bold">Arrow Name</label>
+                    <input 
+                      value={arrow.name}
+                      onChange={e => updateArrow(i, 'name', e.target.value)}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-white text-sm"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-zinc-500 text-[10px] uppercase font-bold">Spine</label>
+                      <input 
+                        value={arrow.spine}
+                        onChange={e => updateArrow(i, 'spine', e.target.value)}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-white text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-zinc-500 text-[10px] uppercase font-bold">Length</label>
+                      <input 
+                        value={arrow.length}
+                        onChange={e => updateArrow(i, 'length', e.target.value)}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-white text-sm"
+                      />
+                    </div>
+                  </div>
+               </div>
+             ))}
+           </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Dashboard = () => {
   const navigate = useNavigate();
   const [history, setHistory] = useState<Session[]>([]);
   const [range, setRange] = useState<'1W' | '1M' | '3M' | '1Y' | 'ALL'>('1M');
+  const [profile, setProfile] = useState(getUserProfile());
 
   const loadHistory = () => {
     setHistory(getSessions());
+    setProfile(getUserProfile());
   };
 
   useEffect(() => {
@@ -119,15 +336,18 @@ const Dashboard = () => {
     : "0.00";
 
   return (
-    <div className="p-6 space-y-6 pb-28">
+    <div className="p-6 space-y-6 pb-28 animate-in fade-in">
       <header className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-white">Dashboard</h1>
-          <p className="text-zinc-400">Welcome back, Archer.</p>
+          <p className="text-zinc-400">Welcome back, {profile.name.split(' ')[0]}.</p>
         </div>
-        <div className="h-10 w-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white font-bold shadow-lg shadow-emerald-900/20">
-          A
-        </div>
+        <button 
+          onClick={() => navigate('/profile')}
+          className="h-12 w-12 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white font-bold shadow-lg shadow-emerald-900/20 active:scale-95 transition-transform border-2 border-zinc-900"
+        >
+          {profile.name.charAt(0).toUpperCase()}
+        </button>
       </header>
 
       {/* Stats Grid */}
@@ -858,6 +1078,7 @@ const App = () => {
           <Route path="/active/:id" element={<ActiveSession />} />
           <Route path="/summary/:id" element={<SessionSummary />} />
           <Route path="/history" element={<HistoryPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
         </Routes>
         
         {/* Navigation Bar (Only visible on Dashboard and History) */}

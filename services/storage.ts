@@ -1,6 +1,7 @@
-import { Session } from '../types';
+import { Session, UserProfile } from '../types';
 
 const STORAGE_KEY = 'bullseye_sessions';
+const PROFILE_KEY = 'bullseye_profile';
 
 export const getSessions = (): Session[] => {
   try {
@@ -52,4 +53,35 @@ export const calculateSessionScore = (session: Session): number => {
     const endScore = end.arrows.reduce((sum, arrow) => sum + arrow.value, 0);
     return total + endScore;
   }, 0);
+};
+
+// --- Profile ---
+
+export const getUserProfile = (): UserProfile => {
+  try {
+    const data = localStorage.getItem(PROFILE_KEY);
+    if (data) return JSON.parse(data);
+  } catch (e) {
+    console.error("Failed to load profile", e);
+  }
+  
+  return {
+    name: 'Guest Archer',
+    equipment: {
+      bowName: '',
+      riser: '',
+      limbs: '',
+      poundage: '',
+      sightMarks: [],
+      arrows: []
+    }
+  };
+};
+
+export const saveUserProfile = (profile: UserProfile) => {
+  try {
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  } catch (e) {
+    console.error("Failed to save profile", e);
+  }
 };

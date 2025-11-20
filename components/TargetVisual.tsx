@@ -37,8 +37,8 @@ const TargetVisual: React.FC<TargetVisualProps> = ({
   // Constants
   const FULL_SIZE = 1000;
   const CENTER = FULL_SIZE / 2;
-  const SCOPE_SIZE = 180; // px
-  const SCOPE_ZOOM = 3.5; 
+  const SCOPE_SIZE = 140; // Smaller scope
+  const SCOPE_ZOOM = 3; 
 
   // -- Rings Definition --
   const rings = useMemo(() => [
@@ -85,15 +85,7 @@ const TargetVisual: React.FC<TargetVisualProps> = ({
 
   // -- Handlers: Aiming (Write Mode) --
 
-  const handleAimStart = (e: React.TouchEvent | React.MouseEvent) => {
-    if (readOnly) {
-      handlePanStart(e);
-      return;
-    }
-    
-    e.preventDefault(); // Prevent scrolling
-    setIsTouching(true);
-    
+  const updateTouchInfo = (e: React.TouchEvent | React.MouseEvent) => {
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
     
@@ -107,6 +99,17 @@ const TargetVisual: React.FC<TargetVisualProps> = ({
     setAimCoords(p);
   };
 
+  const handleAimStart = (e: React.TouchEvent | React.MouseEvent) => {
+    if (readOnly) {
+      handlePanStart(e);
+      return;
+    }
+    
+    e.preventDefault(); // Prevent scrolling
+    setIsTouching(true);
+    updateTouchInfo(e);
+  };
+
   const handleAimMove = (e: React.TouchEvent | React.MouseEvent) => {
     if (readOnly) {
       handlePanMove(e);
@@ -114,17 +117,7 @@ const TargetVisual: React.FC<TargetVisualProps> = ({
     }
     if (!isTouching) return;
     e.preventDefault();
-
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      setTouchPos({ x: clientX - rect.left, y: clientY - rect.top });
-    }
-
-    const p = getSVGPoint(clientX, clientY);
-    setAimCoords(p);
+    updateTouchInfo(e);
   };
 
   const handleAimEnd = (e: React.TouchEvent | React.MouseEvent) => {
@@ -208,6 +201,48 @@ const TargetVisual: React.FC<TargetVisualProps> = ({
     if (!readOnly) return;
     // Reset view
     setViewBox({ x: 0, y: 0, w: FULL_SIZE, h: FULL_SIZE });
+  };
+
+  // -- Scope Positioning --
+  const getScopeStyle = () => {
+    if (!containerRef.current) return {};
+    
+    const { clientWidth: W, clientHeight: H } = containerRef.current;
+    
+    // Default: Above finger
+    let left = touchPos.x - SCOPE_SIZE / 2;
+    let top = touchPos.y - SCOPE_SIZE * 1.2;
+
+    // 1. Horizontal Clamping
+    // Don't let it go off left edge
+    if (left < 0) left = 0;
+    // Don't let it go off right edge
+    if (left + SCOPE_SIZE > W) left = W - SCOPE_SIZE;
+
+    // 2. Vertical Flipping
+    // If finger is too close to top (less than scope height + margin), flip to bottom
+    const topSafetyMargin = SCOPE_SIZE * 1.2;
+    if (touchPos.y < topSafetyMargin) {
+       // Position below finger
+       top = touchPos.y + 60; 
+    }
+
+    // 3. Vertical Clamping (Bottom edge)
+    if (top + SCOPE_SIZE > H) {
+       top = H - SCOPE_SIZE;
+       // If clamping forces it to overlap finger, prioritize staying on screen.
+       // The user can move finger to see.
+    }
+    
+    // 4. Vertical Clamping (Top edge) - in case flip logic didn't catch weird edge cases
+    if (top < 0) top = 0;
+
+    return {
+      width: SCOPE_SIZE,
+      height: SCOPE_SIZE,
+      left: left,
+      top: top,
+    };
   };
 
   // -- Render Components --
@@ -300,12 +335,7 @@ const TargetVisual: React.FC<TargetVisualProps> = ({
       {isTouching && !readOnly && (
         <div 
           className="absolute rounded-full border-4 border-white shadow-2xl overflow-hidden z-50 pointer-events-none bg-zinc-900"
-          style={{
-            width: SCOPE_SIZE,
-            height: SCOPE_SIZE,
-            left: touchPos.x - (SCOPE_SIZE / 2),
-            top: touchPos.y - SCOPE_SIZE * 1.2, // Offset upwards so finger doesn't block it
-          }}
+          style={getScopeStyle()}
         >
           <svg
              viewBox={`${aimCoords.x - (FULL_SIZE / SCOPE_ZOOM / 2)} ${aimCoords.y - (FULL_SIZE / SCOPE_ZOOM / 2)} ${FULL_SIZE / SCOPE_ZOOM} ${FULL_SIZE / SCOPE_ZOOM}`}
@@ -313,12 +343,11 @@ const TargetVisual: React.FC<TargetVisualProps> = ({
              preserveAspectRatio="xMidYMid slice"
           >
             <TargetFaceContent />
-            {/* Render existing shots in scope too for reference? Optional. Let's skip to keep view clean for aiming. */}
           </svg>
           
           {/* Reticle */}
           <div className="absolute inset-0 flex items-center justify-center">
-             <div className="w-2 h-2 bg-red-500 rounded-full shadow-sm"></div>
+             <div className="w-1.5 h-1.5 bg-red-500 rounded-full shadow-sm"></div>
              <div className="absolute w-full h-[1px] bg-red-500/50"></div>
              <div className="absolute h-full w-[1px] bg-red-500/50"></div>
           </div>
