@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, useNavigate, useLocation, Navigate, useParams } from 'react-router-dom';
-import { Plus, History, BarChart2, ChevronLeft, ArrowRight, FileText, X, RotateCcw, Undo2 } from 'lucide-react';
+import { Plus, History, BarChart2, ChevronLeft, ArrowRight, FileText, X, RotateCcw, Undo2, Edit2, Target, List } from 'lucide-react';
 import { Session, End, ArrowShot, TargetFaceType } from './types';
 import { DEFAULT_ARROWS_PER_END, DEFAULT_ENDS } from './constants';
-import { saveSession, getSessions, calculateSessionScore, deleteSession } from './services/storage';
+import { saveSession, getSessions, calculateSessionScore, deleteSession, updateSession } from './services/storage';
 import TargetVisual from './components/TargetVisual';
 import DialPad from './components/DialPad';
+import SwipeableRow from './components/SwipeableRow';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // --- Helpers ---
@@ -70,9 +71,20 @@ const Dashboard = () => {
   const [history, setHistory] = useState<Session[]>([]);
   const [range, setRange] = useState<'1W' | '1M' | '3M' | '1Y' | 'ALL'>('1M');
 
-  useEffect(() => {
+  const loadHistory = () => {
     setHistory(getSessions());
+  };
+
+  useEffect(() => {
+    loadHistory();
   }, []);
+
+  const handleDelete = (id: string) => {
+    if (window.confirm('Delete this session?')) {
+      deleteSession(id);
+      loadHistory(); // Force re-render
+    }
+  };
 
   // Filter History
   const now = new Date();
@@ -191,20 +203,21 @@ const Dashboard = () => {
           {history.slice(0, 5).map(s => {
             const { totalScore, average } = calculateStats(s);
             return (
-              <button 
-                key={s.id} 
-                onClick={() => navigate(`/summary/${s.id}`)}
-                className="w-full flex items-center justify-between p-4 bg-zinc-900 rounded-xl border border-zinc-800 active:bg-zinc-800 transition-colors text-left group"
-              >
-                <div>
-                   <p className="text-white font-medium group-hover:text-emerald-400 transition-colors">{s.name || 'Practice Session'}</p>
-                   <p className="text-xs text-zinc-500">{new Date(s.date).toLocaleDateString()} • {s.distance}m</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xl font-bold text-white">{totalScore}</p>
-                  <p className="text-xs text-zinc-500">Avg {average.toFixed(1)}</p>
-                </div>
-              </button>
+              <SwipeableRow key={s.id} onDelete={() => handleDelete(s.id)}>
+                <button 
+                  onClick={() => navigate(`/summary/${s.id}`)}
+                  className="w-full flex items-center justify-between p-4 active:bg-zinc-800 transition-colors text-left group"
+                >
+                  <div>
+                     <p className="text-white font-medium group-hover:text-emerald-400 transition-colors">{s.name || 'Practice Session'}</p>
+                     <p className="text-xs text-zinc-500">{new Date(s.date).toLocaleDateString()} • {s.distance}m</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xl font-bold text-white">{totalScore}</p>
+                    <p className="text-xs text-zinc-500">Avg {average.toFixed(1)}</p>
+                  </div>
+                </button>
+              </SwipeableRow>
             );
           })}
           {history.length === 0 && <p className="text-zinc-600 text-center py-4">No sessions recorded yet.</p>}
@@ -218,30 +231,38 @@ const SessionSummary = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [session, setSession] = useState<Session | null>(null);
-  const [notes, setNotes] = useState("");
-  const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'target'>('list');
+  
+  // Modals
+  const [showEditModal, setShowEditModal] = useState(false);
+  
+  // Edit State
+  const [editName, setEditName] = useState('');
+  const [editNote, setEditNote] = useState('');
 
   useEffect(() => {
     const sessions = getSessions();
     const found = sessions.find(s => s.id === id);
     if (found) {
       setSession(found);
-      setNotes(found.notes || "");
+      setEditName(found.name);
+      setEditNote(found.notes || '');
     }
   }, [id]);
 
-  const handleSaveNotes = () => {
+  const handleSaveEdit = () => {
     if (!session) return;
-    const updated = { ...session, notes };
-    saveSession(updated);
-    setSession(updated);
-    setIsEditingNotes(false);
+    const updated = updateSession(session.id, { name: editName, notes: editNote });
+    if (updated) {
+       setSession(updated);
+       setShowEditModal(false);
+    }
   };
 
   const handleDelete = () => {
     if (window.confirm("Are you sure you want to delete this session?")) {
       if (session) deleteSession(session.id);
-      navigate('/history');
+      navigate('/history', { replace: true });
     }
   };
 
@@ -249,18 +270,24 @@ const SessionSummary = () => {
 
   const { totalScore, totalArrows, average } = calculateStats(session);
   const tenCount = session.ends.flatMap(e => e.arrows).filter(a => a.value === 10).length;
+  const allArrows = session.ends.flatMap(e => e.arrows);
 
   return (
     <div className="min-h-screen bg-zinc-950 p-6 pb-24">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center">
-          {/* Go to history to prevent routing loops if coming from active session redirect */}
           <button onClick={() => navigate('/history')} className="p-2 -ml-2 text-zinc-400 hover:text-white"><ChevronLeft /></button>
-          <h1 className="text-xl font-bold text-white ml-2 truncate max-w-[200px]">{session.name}</h1>
+          <div className="ml-2">
+            <h1 className="text-xl font-bold text-white truncate max-w-[200px]" onClick={() => setShowEditModal(true)}>{session.name}</h1>
+            <div className="text-xs text-zinc-500">{new Date(session.date).toLocaleDateString()} • {session.distance}m</div>
+          </div>
         </div>
-        <button onClick={handleDelete} className="text-red-500 text-xs uppercase tracking-wider font-bold bg-red-500/10 px-3 py-1 rounded-full">Delete</button>
+        <div className="flex gap-2">
+           <button onClick={() => setShowEditModal(true)} className="p-2 bg-zinc-900 rounded-full text-zinc-400 hover:text-white"><Edit2 size={18} /></button>
+        </div>
       </div>
 
+      {/* Stats Overview */}
       <div className="grid grid-cols-3 gap-2 mb-6">
         <div className="bg-zinc-900 p-3 rounded-xl border border-zinc-800 text-center">
           <div className="text-xs text-zinc-500 uppercase tracking-wider">Score</div>
@@ -276,44 +303,89 @@ const SessionSummary = () => {
         </div>
       </div>
 
-      <div className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden mb-6">
-        <div className="p-4 bg-zinc-800/50 border-b border-zinc-800 flex justify-between items-center">
-          <h3 className="font-medium text-white">Score Sheet</h3>
-          <span className="text-xs text-zinc-500">{session.ends.length} Ends • {session.distance}m</span>
-        </div>
-        <div className="p-4 space-y-1 max-h-96 overflow-y-auto">
-          {session.ends.map((end, i) => (
-            <ScoreSheetRow key={end.id} end={end} endNumber={end.number} totalEnds={session.totalEnds} />
-          ))}
-        </div>
+      <div className="flex gap-2 mb-4 bg-zinc-900/50 p-1 rounded-lg border border-zinc-800 w-fit mx-auto">
+        <button 
+          onClick={() => setViewMode('list')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-bold transition-colors ${viewMode === 'list' ? 'bg-zinc-700 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}
+        >
+          <List size={16} /> Score Sheet
+        </button>
+        <button 
+          onClick={() => setViewMode('target')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-bold transition-colors ${viewMode === 'target' ? 'bg-zinc-700 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}
+        >
+          <Target size={16} /> Point Cloud
+        </button>
       </div>
+
+      {viewMode === 'list' ? (
+        <div className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden mb-6">
+          <div className="p-4 bg-zinc-800/50 border-b border-zinc-800 flex justify-between items-center">
+            <h3 className="font-medium text-white">Ends</h3>
+            <span className="text-xs text-zinc-500">{session.ends.length} Ends</span>
+          </div>
+          <div className="p-4 space-y-1 max-h-96 overflow-y-auto">
+            {session.ends.map((end, i) => (
+              <ScoreSheetRow key={end.id} end={end} endNumber={end.number} totalEnds={session.totalEnds} />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="aspect-square w-full bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden mb-6 relative flex items-center justify-center">
+           <div className="w-full h-full">
+              <TargetVisual type={session.targetType} existingShots={allArrows} readOnly />
+           </div>
+           <div className="absolute bottom-4 right-4 bg-black/50 backdrop-blur px-3 py-1 rounded-full text-xs text-white pointer-events-none">
+              {allArrows.length} Shots
+           </div>
+        </div>
+      )}
 
       <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-4">
         <div className="flex justify-between items-center mb-2">
           <h3 className="font-medium text-white flex items-center gap-2"><FileText size={16} /> Notes</h3>
-          {!isEditingNotes && (
-            <button onClick={() => setIsEditingNotes(true)} className="text-emerald-500 text-sm font-medium">Edit</button>
-          )}
         </div>
-        {isEditingNotes ? (
-          <div className="space-y-2">
-            <textarea 
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="w-full bg-zinc-950 border border-zinc-700 rounded-lg p-3 text-white text-sm min-h-[100px] focus:border-emerald-500 outline-none"
-              placeholder="Wind conditions, technique notes..."
-            />
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setIsEditingNotes(false)} className="px-3 py-1 text-sm text-zinc-400">Cancel</button>
-              <button onClick={handleSaveNotes} className="px-3 py-1 bg-emerald-600 text-white rounded text-sm font-medium">Save</button>
-            </div>
-          </div>
-        ) : (
-          <p className="text-zinc-400 text-sm whitespace-pre-wrap min-h-[20px]">
-            {session.notes || "No notes added."}
-          </p>
-        )}
+        <p className="text-zinc-400 text-sm whitespace-pre-wrap min-h-[20px]">
+          {session.notes || "No notes added."}
+        </p>
       </div>
+
+      <div className="mt-8 text-center">
+         <button onClick={handleDelete} className="text-red-500 text-sm font-medium px-4 py-2 hover:bg-red-500/10 rounded-lg transition-colors">
+            Delete Session
+         </button>
+      </div>
+
+      {/* Edit Modal */}
+      {showEditModal && (
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+           <div className="bg-zinc-900 w-full max-w-sm rounded-2xl border border-zinc-800 p-4 shadow-2xl animate-in fade-in zoom-in duration-200">
+              <h3 className="text-lg font-bold text-white mb-4">Edit Session</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs uppercase text-zinc-500 font-bold">Name</label>
+                  <input 
+                    value={editName}
+                    onChange={e => setEditName(e.target.value)}
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded-lg p-3 text-white focus:border-emerald-500 outline-none mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs uppercase text-zinc-500 font-bold">Notes</label>
+                  <textarea 
+                    value={editNote}
+                    onChange={e => setEditNote(e.target.value)}
+                    className="w-full h-24 bg-zinc-950 border border-zinc-700 rounded-lg p-3 text-white resize-none focus:border-emerald-500 outline-none mt-1"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button onClick={() => setShowEditModal(false)} className="flex-1 py-3 bg-zinc-800 rounded-xl font-medium text-zinc-400">Cancel</button>
+                <button onClick={handleSaveEdit} className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold shadow-lg shadow-emerald-900/20">Save Changes</button>
+              </div>
+           </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -331,7 +403,8 @@ const ActiveSession = () => {
   
   // Editing state
   const [editingArrow, setEditingArrow] = useState<{ endId: string | 'current', index: number } | null>(null);
-  
+  const [editInputMode, setEditInputMode] = useState<'dial' | 'visual'>('dial');
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -343,7 +416,6 @@ const ActiveSession = () => {
       if (found.ends.length < found.totalEnds) {
         setCurrentEndIndex(found.ends.length);
       } else if (found.isComplete) {
-        // Use replace to avoid history loops when going back from summary
         navigate(`/summary/${found.id}`, { replace: true });
       }
     }
@@ -354,7 +426,6 @@ const ActiveSession = () => {
   }, [session]);
 
   useEffect(() => {
-    // Scroll to bottom when arrows change
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
@@ -374,7 +445,7 @@ const ActiveSession = () => {
     setCurrentArrows(newArrows);
 
     if (newArrows.length === session.arrowsPerEnd) {
-      setTimeout(() => completeEnd(newArrows), 250);
+      setTimeout(() => completeEnd(newArrows), 300); // Slightly longer delay to allow visual feedback
     }
   };
 
@@ -441,6 +512,7 @@ const ActiveSession = () => {
 
   const openEdit = (endId: string | 'current', index: number) => {
     setEditingArrow({ endId, index });
+    setEditInputMode(inputMode); // Default to current mode, or 'dial'
   };
 
   if (!session) return <div className="p-8 text-zinc-500">Loading...</div>;
@@ -479,7 +551,7 @@ const ActiveSession = () => {
         </div>
       </div>
 
-      {/* Running Score Sheet - Maximized Space */}
+      {/* Running Score Sheet */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-2 space-y-1 scroll-smooth bg-zinc-950 relative">
         {session.ends.map((end) => (
           <ScoreSheetRow 
@@ -491,7 +563,6 @@ const ActiveSession = () => {
           />
         ))}
         
-        {/* Current End Active Row */}
         <div className={`flex items-center justify-between py-3 border-b border-zinc-800 bg-zinc-900/30 -mx-2 px-2 border-l-2 border-l-emerald-500 transition-all mt-2`}>
           <div className="w-8 text-emerald-500 font-mono font-bold text-lg text-center">
             {currentEndIndex + 1}
@@ -510,14 +581,12 @@ const ActiveSession = () => {
           </div>
         </div>
         
-        {/* Spacer for bottom padding */}
         <div className="h-4"></div>
       </div>
 
-      {/* Control Area - Compact */}
+      {/* Control Area */}
       <div className="bg-zinc-900 border-t border-zinc-800 shrink-0 safe-area-bottom shadow-[0_-4px_20px_rgba(0,0,0,0.4)] z-20">
         
-        {/* Toolbar */}
         <div className="flex justify-between items-center py-2 px-4 border-b border-zinc-800/50">
            <button 
             onClick={handleUndo} 
@@ -542,7 +611,7 @@ const ActiveSession = () => {
              </button>
            </div>
            
-           <div className="w-16"></div> {/* Spacer for balance */}
+           <div className="w-16"></div>
         </div>
 
         <div className="p-2 pb-6 bg-zinc-900">
@@ -564,16 +633,28 @@ const ActiveSession = () => {
       {/* Edit Modal */}
       {editingArrow && (
         <div className="absolute inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col justify-end">
-           <div className="bg-zinc-900 rounded-t-2xl border-t border-zinc-800 p-6 shadow-2xl animate-[slideUp_0.2s_ease-out]">
-             <div className="flex justify-between items-center mb-6">
+           <div className="bg-zinc-900 rounded-t-2xl border-t border-zinc-800 p-6 shadow-2xl animate-[slideUp_0.2s_ease-out] max-h-[80vh] flex flex-col">
+             <div className="flex justify-between items-center mb-4 shrink-0">
                <h3 className="text-xl font-bold text-white">Edit Arrow</h3>
+               <div className="flex bg-zinc-800 p-1 rounded-lg">
+                  <button onClick={() => setEditInputMode('dial')} className={`px-3 py-1 text-xs font-bold rounded-md ${editInputMode === 'dial' ? 'bg-zinc-600 text-white' : 'text-zinc-400'}`}>DIAL</button>
+                  <button onClick={() => setEditInputMode('visual')} className={`px-3 py-1 text-xs font-bold rounded-md ${editInputMode === 'visual' ? 'bg-zinc-600 text-white' : 'text-zinc-400'}`}>FACE</button>
+               </div>
                <button onClick={() => setEditingArrow(null)} className="p-2 bg-zinc-800 rounded-full"><X size={20} /></button>
              </div>
-             <DialPad 
-                onScore={handleScore} 
-                className="w-full mb-4"
-             />
-             <p className="text-center text-zinc-500 text-sm">Select new value for this arrow</p>
+             
+             <div className="flex-1 overflow-hidden flex flex-col justify-center">
+               {editInputMode === 'dial' ? (
+                 <DialPad onScore={handleScore} className="w-full mb-4" />
+               ) : (
+                 <div className="aspect-square w-full max-w-md mx-auto mb-4">
+                   <TargetVisual 
+                      type={session.targetType}
+                      onScore={handleScore}
+                   />
+                 </div>
+               )}
+             </div>
            </div>
         </div>
       )}
@@ -605,9 +686,20 @@ const HistoryPage = () => {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<Session[]>([]);
 
-  useEffect(() => {
+  const loadHistory = () => {
     setSessions(getSessions());
+  };
+
+  useEffect(() => {
+    loadHistory();
   }, []);
+
+  const handleDelete = (id: string) => {
+    if (window.confirm('Delete this session?')) {
+      deleteSession(id);
+      loadHistory();
+    }
+  };
 
   return (
     <div className="p-6 pb-24 bg-zinc-950 min-h-screen">
@@ -620,28 +712,30 @@ const HistoryPage = () => {
         {sessions.map(s => {
            const { totalScore, average } = calculateStats(s);
            return (
-            <button 
-              key={s.id} 
-              onClick={() => navigate(`/summary/${s.id}`)}
-              className="w-full p-4 bg-zinc-900 rounded-xl border border-zinc-800 flex justify-between items-center active:bg-zinc-800 transition-colors text-left group"
-            >
-              <div>
-                 <p className="text-white font-bold text-lg group-hover:text-emerald-400 transition-colors">{s.name}</p>
-                 <div className="flex gap-2 text-xs text-zinc-500 mt-1">
-                   <span>{new Date(s.date).toLocaleDateString()}</span>
-                   <span>•</span>
-                   <span>{s.distance}m</span>
-                   <span>•</span>
-                   <span>{s.ends.reduce((acc,e)=>acc+e.arrows.length,0)} arrows</span>
-                 </div>
-              </div>
-              <div className="flex flex-col items-end">
-                 <span className="text-2xl font-bold text-emerald-500">{totalScore}</span>
-                 <span className="text-xs text-zinc-600">Avg {average.toFixed(1)}</span>
-              </div>
-            </button>
+             <SwipeableRow key={s.id} onDelete={() => handleDelete(s.id)}>
+              <button 
+                onClick={() => navigate(`/summary/${s.id}`)}
+                className="w-full p-4 flex justify-between items-center active:bg-zinc-800 transition-colors text-left group"
+              >
+                <div>
+                   <p className="text-white font-bold text-lg group-hover:text-emerald-400 transition-colors">{s.name}</p>
+                   <div className="flex gap-2 text-xs text-zinc-500 mt-1">
+                     <span>{new Date(s.date).toLocaleDateString()}</span>
+                     <span>•</span>
+                     <span>{s.distance}m</span>
+                     <span>•</span>
+                     <span>{s.ends.reduce((acc,e)=>acc+e.arrows.length,0)} arrows</span>
+                   </div>
+                </div>
+                <div className="flex flex-col items-end">
+                   <span className="text-2xl font-bold text-emerald-500">{totalScore}</span>
+                   <span className="text-xs text-zinc-600">Avg {average.toFixed(1)}</span>
+                </div>
+              </button>
+            </SwipeableRow>
           );
         })}
+        {sessions.length === 0 && <p className="text-zinc-600 text-center py-8">No history yet.</p>}
       </div>
     </div>
   );

@@ -29,6 +29,18 @@ export const saveSession = (session: Session) => {
   }
 };
 
+export const updateSession = (id: string, updates: Partial<Session>) => {
+  const sessions = getSessions();
+  const index = sessions.findIndex(s => s.id === id);
+  
+  if (index >= 0) {
+    sessions[index] = { ...sessions[index], ...updates };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+    return sessions[index];
+  }
+  return null;
+};
+
 export const deleteSession = (id: string) => {
   const sessions = getSessions();
   const filtered = sessions.filter(s => s.id !== id);

@@ -1,220 +1,337 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { TargetFaceType, ArrowShot } from '../types';
 import { TARGET_COLORS } from '../constants';
-import { ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 
 interface TargetVisualProps {
   type: TargetFaceType;
-  onScore: (shot: ArrowShot) => void;
+  onScore?: (shot: ArrowShot) => void;
   lastShot?: ArrowShot;
   existingShots?: ArrowShot[];
+  readOnly?: boolean;
 }
 
-const TargetVisual: React.FC<TargetVisualProps> = ({ type, onScore, lastShot, existingShots = [] }) => {
+const TargetVisual: React.FC<TargetVisualProps> = ({ 
+  type, 
+  onScore, 
+  lastShot, 
+  existingShots = [],
+  readOnly = false
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [startPan, setStartPan] = useState({ x: 0, y: 0 });
-
-  // Viewbox config
-  const viewBoxSize = 1000;
-  const center = viewBoxSize / 2;
-  const maxRadius = 500;
   
-  // Rings definition (radius for WA Target)
-  const rings = [
-    { val: 1, r: maxRadius },
-    { val: 2, r: maxRadius * 0.9 },
-    { val: 3, r: maxRadius * 0.8 },
-    { val: 4, r: maxRadius * 0.7 },
-    { val: 5, r: maxRadius * 0.6 },
-    { val: 6, r: maxRadius * 0.5 },
-    { val: 7, r: maxRadius * 0.4 },
-    { val: 8, r: maxRadius * 0.3 },
-    { val: 9, r: maxRadius * 0.2 },
-    { val: 10, r: maxRadius * 0.1 },
-    { val: 11, r: maxRadius * 0.05 }, // X-ring
-  ];
+  // -- State --
+  const [isTouching, setIsTouching] = useState(false);
+  
+  // Aiming State (SVG Coordinates 0-1000)
+  const [aimCoords, setAimCoords] = useState({ x: 500, y: 500 });
+  
+  // Screen Position of the touch (for Scope positioning)
+  const [touchPos, setTouchPos] = useState({ x: 0, y: 0 }); 
 
-  const handlePointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0) return; // Only left click
-    setIsDragging(true);
-    setStartPan({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+  // View State for ReadOnly (Pan/Zoom)
+  const [viewBox, setViewBox] = useState({ x: 0, y: 0, w: 1000, h: 1000 });
+  const [isDraggingMap, setIsDraggingMap] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  // Constants
+  const FULL_SIZE = 1000;
+  const CENTER = FULL_SIZE / 2;
+  const SCOPE_SIZE = 180; // px
+  const SCOPE_ZOOM = 3.5; 
+
+  // -- Rings Definition --
+  const rings = useMemo(() => [
+    { val: 1, r: 500 },
+    { val: 2, r: 450 },
+    { val: 3, r: 400 },
+    { val: 4, r: 350 },
+    { val: 5, r: 300 },
+    { val: 6, r: 250 },
+    { val: 7, r: 200 },
+    { val: 8, r: 150 },
+    { val: 9, r: 100 },
+    { val: 10, r: 50 },
+    { val: 11, r: 25 }, // X
+  ], []);
+
+  // -- Helpers --
+
+  const getSVGPoint = (clientX: number, clientY: number) => {
+    if (!svgRef.current) return { x: 500, y: 500 };
+    const pt = svgRef.current.createSVGPoint();
+    pt.x = clientX;
+    pt.y = clientY;
+    // Transform screen pixel to SVG coordinate
+    const svgP = pt.matrixTransform(svgRef.current.getScreenCTM()?.inverse());
+    return { x: svgP.x, y: svgP.y };
   };
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging) return;
-    e.preventDefault();
-    setPan({
-      x: e.clientX - startPan.x,
-      y: e.clientY - startPan.y
-    });
-  };
-
-  const handlePointerUp = () => {
-    setIsDragging(false);
-  };
-
-  const handleClick = (e: React.MouseEvent) => {
-    if (isDragging && (Math.abs(e.clientX - startPan.x - pan.x) > 5 || Math.abs(e.clientY - startPan.y - pan.y) > 5)) {
-      // If moved significantly, treat as drag, not click
-      return;
-    }
-
-    if (!svgRef.current) return;
-
-    const rect = svgRef.current.getBoundingClientRect();
-    const scaleX = viewBoxSize / rect.width;
-    const scaleY = viewBoxSize / rect.height;
-
-    // Calculate click position relative to SVG center, accounting for current zoom/pan not needed if we use exact SVG coords mapping
-    // However, since we are transforming the GROUP inside, we need to reverse transform.
-    
-    // Pure SVG coordinate calculation without zoom influence first
-    const clickX = (e.clientX - rect.left) * scaleX;
-    const clickY = (e.clientY - rect.top) * scaleY;
-
-    // Adjust for Zoom/Pan transform
-    // The group transform is: translate(pan.x, pan.y) scale(zoom) from center? 
-    // Actually easier to just map touch to SVG coordinate space directly if we render visual feedback only. 
-    
-    // Let's simplify: The click needs to be calculated based on the visual target, whatever its size.
-    // We need the click relative to the center of the target rings.
-    
-    // Re-calculating:
-    // The target is drawn centered at (500, 500).
-    // We need to find where the user clicked relative to that 500,500 point.
-    // We need to factor in the CSS transform that is applied to the container or group.
-    
-    // Let's try a simpler approach for scoring: Use standard vector math from the visual center.
-    // But to support zoom, we need the transformed coordinates.
-    
-    // Helper: get point in SVG space
-    const point = svgRef.current.createSVGPoint();
-    point.x = e.clientX;
-    point.y = e.clientY;
-    
-    // Get the matrix of the <g> element containing rings
-    const targetGroup = svgRef.current.getElementById('target-rings');
-    if (!targetGroup) return;
-    
-    const ctm = (targetGroup as SVGGraphicsElement).getScreenCTM();
-    if (!ctm) return;
-    
-    const svgPoint = point.matrixTransform(ctm.inverse());
-    
-    // Distance from center (500, 500)
-    const dx = svgPoint.x - center;
-    const dy = svgPoint.y - center;
+  const calculateScore = (x: number, y: number) => {
+    const dx = x - CENTER;
+    const dy = y - CENTER;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    let score = 0;
-    let display = 'M';
+    if (dist > 500) return { value: 0, display: 'M' };
 
-    // Determine score
-    if (dist > maxRadius) {
-      score = 0;
-      display = 'M';
-    } else {
-      // Find the smallest ring that contains the distance
-      for (let i = rings.length - 1; i >= 0; i--) {
-        if (dist <= rings[i].r) {
-          if (rings[i].val === 11) {
-            score = 10;
-            display = 'X';
-          } else {
-            score = rings[i].val;
-            display = score.toString();
-          }
-          break;
-        }
+    for (let i = rings.length - 1; i >= 0; i--) {
+      if (dist <= rings[i].r) {
+        if (rings[i].val === 11) return { value: 10, display: 'X' };
+        return { value: rings[i].val, display: rings[i].val.toString() };
       }
     }
+    return { value: 0, display: 'M' };
+  };
 
-    onScore({
-      value: score,
-      display,
-      x: svgPoint.x,
-      y: svgPoint.y,
-      timestamp: Date.now()
+  // -- Handlers: Aiming (Write Mode) --
+
+  const handleAimStart = (e: React.TouchEvent | React.MouseEvent) => {
+    if (readOnly) {
+      handlePanStart(e);
+      return;
+    }
+    
+    e.preventDefault(); // Prevent scrolling
+    setIsTouching(true);
+    
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    
+    // Update touch pos for scope UI location
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      setTouchPos({ x: clientX - rect.left, y: clientY - rect.top });
+    }
+
+    const p = getSVGPoint(clientX, clientY);
+    setAimCoords(p);
+  };
+
+  const handleAimMove = (e: React.TouchEvent | React.MouseEvent) => {
+    if (readOnly) {
+      handlePanMove(e);
+      return;
+    }
+    if (!isTouching) return;
+    e.preventDefault();
+
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      setTouchPos({ x: clientX - rect.left, y: clientY - rect.top });
+    }
+
+    const p = getSVGPoint(clientX, clientY);
+    setAimCoords(p);
+  };
+
+  const handleAimEnd = (e: React.TouchEvent | React.MouseEvent) => {
+    if (readOnly) {
+      handlePanEnd();
+      return;
+    }
+    if (!isTouching) return;
+    setIsTouching(false);
+
+    if (onScore) {
+      const score = calculateScore(aimCoords.x, aimCoords.y);
+      onScore({
+        ...score,
+        x: aimCoords.x,
+        y: aimCoords.y,
+        timestamp: Date.now()
+      });
+    }
+  };
+
+  // -- Handlers: Pan/Zoom (Read Mode) --
+
+  const handlePanStart = (e: React.TouchEvent | React.MouseEvent) => {
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    setIsDraggingMap(true);
+    setDragStart({ x: clientX, y: clientY });
+  };
+
+  const handlePanMove = (e: React.TouchEvent | React.MouseEvent) => {
+    if (!isDraggingMap) return;
+    e.preventDefault();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+    const dxPx = clientX - dragStart.x;
+    const dyPx = clientY - dragStart.y;
+
+    // Convert pixel delta to SVG delta
+    // SVG width / Client Width gives ratio
+    if (containerRef.current) {
+      const ratio = viewBox.w / containerRef.current.clientWidth;
+      const dxSvg = dxPx * ratio;
+      const dySvg = dyPx * ratio;
+
+      setViewBox(prev => ({
+        ...prev,
+        x: prev.x - dxSvg,
+        y: prev.y - dySvg
+      }));
+    }
+
+    setDragStart({ x: clientX, y: clientY });
+  };
+
+  const handlePanEnd = () => {
+    setIsDraggingMap(false);
+  };
+
+  const handleZoom = (direction: 'in' | 'out') => {
+    setViewBox(prev => {
+      const factor = direction === 'in' ? 0.8 : 1.25;
+      const newW = Math.min(FULL_SIZE, prev.w * factor);
+      const newH = Math.min(FULL_SIZE, prev.h * factor);
+      
+      // Zoom towards center of current view
+      const centerX = prev.x + prev.w / 2;
+      const centerY = prev.y + prev.h / 2;
+
+      return {
+        x: centerX - newW / 2,
+        y: centerY - newH / 2,
+        w: newW,
+        h: newH
+      };
     });
   };
 
-  const resetView = () => {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
+  const handleDoubleTap = () => {
+    if (!readOnly) return;
+    // Reset view
+    setViewBox({ x: 0, y: 0, w: FULL_SIZE, h: FULL_SIZE });
   };
 
-  return (
-    <div className="relative w-full h-full overflow-hidden bg-zinc-900 touch-none rounded-xl border border-zinc-800 shadow-inner">
-      
-      <div className="absolute top-4 right-4 flex flex-col gap-2 z-10">
-        <button onClick={() => setZoom(z => Math.min(z * 1.2, 5))} className="p-2 bg-zinc-800 text-white rounded-full shadow hover:bg-zinc-700"><ZoomIn size={20}/></button>
-        <button onClick={() => setZoom(z => Math.max(z / 1.2, 0.5))} className="p-2 bg-zinc-800 text-white rounded-full shadow hover:bg-zinc-700"><ZoomOut size={20}/></button>
-        <button onClick={resetView} className="p-2 bg-zinc-800 text-white rounded-full shadow hover:bg-zinc-700"><RotateCcw size={20}/></button>
-      </div>
+  // -- Render Components --
 
+  const TargetFaceContent = () => (
+    <>
+      <rect x={-500} y={-500} width={2000} height={2000} fill="#09090b" />
+      {rings.map((ring) => {
+        const isX = ring.val === 11;
+        const colorKey = isX ? 10 : ring.val;
+        const colorData = TARGET_COLORS[colorKey as keyof typeof TARGET_COLORS];
+        return (
+          <circle
+            key={ring.val}
+            cx={CENTER}
+            cy={CENTER}
+            r={ring.r}
+            fill={colorData.ring}
+            stroke={ring.val <= 2 ? '#e4e4e7' : '#18181b'}
+            strokeWidth="1"
+          />
+        );
+      })}
+      <line x1={CENTER-5} y1={CENTER} x2={CENTER+5} y2={CENTER} stroke="#000" strokeWidth="0.5" />
+      <line x1={CENTER} y1={CENTER-5} x2={CENTER} y2={CENTER+5} stroke="#000" strokeWidth="0.5" />
+    </>
+  );
+
+  return (
+    <div 
+      ref={containerRef}
+      className="relative w-full h-full overflow-hidden bg-zinc-900 touch-none select-none rounded-xl"
+      onTouchStart={handleAimStart}
+      onTouchMove={handleAimMove}
+      onTouchEnd={handleAimEnd}
+      onMouseDown={handleAimStart}
+      onMouseMove={handleAimMove}
+      onMouseUp={handleAimEnd}
+      onMouseLeave={handleAimEnd}
+      onDoubleClick={handleDoubleTap}
+    >
       <svg 
         ref={svgRef}
-        viewBox={`0 0 ${viewBoxSize} ${viewBoxSize}`} 
-        className="w-full h-full cursor-crosshair"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
-        onClick={handleClick}
+        viewBox={readOnly ? `${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}` : `0 0 ${FULL_SIZE} ${FULL_SIZE}`} 
+        className="w-full h-full pointer-events-none"
+        preserveAspectRatio="xMidYMid meet"
       >
-        <g 
-          id="target-rings"
-          transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`} 
-          style={{ transformOrigin: 'center', transition: isDragging ? 'none' : 'transform 0.1s ease-out' }}
-        >
-            {/* Background for M */}
-            <rect x={0} y={0} width={viewBoxSize} height={viewBoxSize} fill="#09090b" opacity={0} />
+        <TargetFaceContent />
+        
+        {/* Shots */}
+        {existingShots.map((s, i) => (
+          s.x !== undefined && (
+            <g key={i}>
+              <circle 
+                cx={s.x} cy={s.y} 
+                r={readOnly ? 4 * (viewBox.w / FULL_SIZE) * 3 : 5} 
+                fill="#3b82f6" stroke="white" strokeWidth={1} opacity={0.8} 
+              />
+              {readOnly && (
+                 <text 
+                   x={s.x} y={s.y} dy={-8 * (viewBox.w / FULL_SIZE) * 2} 
+                   textAnchor="middle" 
+                   fontSize={14 * (viewBox.w / FULL_SIZE) * 2} 
+                   fill="white" fontWeight="bold" className="font-mono drop-shadow-md"
+                  >
+                   {i + 1}
+                 </text>
+              )}
+            </g>
+          )
+        ))}
 
-            {/* Rings (Outer to Inner) */}
-            {rings.map((ring) => {
-              const isX = ring.val === 11;
-              const colorKey = isX ? 10 : ring.val;
-              const colorData = TARGET_COLORS[colorKey as keyof typeof TARGET_COLORS];
-              
-              return (
-                <circle
-                  key={ring.val}
-                  cx={center}
-                  cy={center}
-                  r={ring.r}
-                  fill={colorData.ring}
-                  stroke={ring.val <= 2 ? '#e4e4e7' : '#18181b'} // Light border for black/white rings
-                  strokeWidth="1"
-                />
-              );
-            })}
-            
-            {/* X ring center crosshair optional */}
-            <line x1={center-5} y1={center} x2={center+5} y2={center} stroke="#000" strokeWidth="0.5" />
-            <line x1={center} y1={center-5} x2={center} y2={center+5} stroke="#000" strokeWidth="0.5" />
-
-            {/* Past Shots */}
-            {existingShots.map((s, i) => (
-              s.x !== undefined && (
-                <g key={i}>
-                  <circle cx={s.x} cy={s.y} r={5 / zoom} fill="#3b82f6" stroke="white" strokeWidth={1 / zoom} opacity={0.6} />
-                  <text x={s.x} y={s.y} dy={15/zoom} textAnchor="middle" fontSize={12/zoom} fill="white" className="pointer-events-none font-bold drop-shadow-md">{i + 1}</text>
-                </g>
-              )
-            ))}
-
-             {/* Last Shot Highlight */}
-             {lastShot && lastShot.x !== undefined && (
-               <g>
-                 <circle cx={lastShot.x} cy={lastShot.y} r={6 / zoom} fill="#ef4444" stroke="white" strokeWidth={2 / zoom} className="animate-pulse" />
-                 <text x={lastShot.x} y={lastShot.y} dy={-10/zoom} textAnchor="middle" fontSize={14/zoom} fill="white" className="pointer-events-none font-bold drop-shadow-md shadow-black">{lastShot.display}</text>
-               </g>
-            )}
-        </g>
+        {/* Last Shot Highlight (Only in write mode) */}
+        {!readOnly && lastShot && lastShot.x !== undefined && !isTouching && (
+           <g>
+             <circle cx={lastShot.x} cy={lastShot.y} r={6} fill="#ef4444" stroke="white" strokeWidth={2} className="animate-pulse" />
+           </g>
+        )}
       </svg>
+
+      {/* Read Only Controls */}
+      {readOnly && (
+        <div className="absolute bottom-4 right-4 flex flex-col gap-2 pointer-events-auto">
+           <button onClick={() => handleZoom('in')} className="w-10 h-10 bg-black/60 backdrop-blur text-white rounded-full flex items-center justify-center font-bold border border-white/10 active:scale-90 transition-transform">+</button>
+           <button onClick={() => handleZoom('out')} className="w-10 h-10 bg-black/60 backdrop-blur text-white rounded-full flex items-center justify-center font-bold border border-white/10 active:scale-90 transition-transform">-</button>
+        </div>
+      )}
+
+      {/* SCOPE (Magnifier) for Aiming */}
+      {isTouching && !readOnly && (
+        <div 
+          className="absolute rounded-full border-4 border-white shadow-2xl overflow-hidden z-50 pointer-events-none bg-zinc-900"
+          style={{
+            width: SCOPE_SIZE,
+            height: SCOPE_SIZE,
+            left: touchPos.x - (SCOPE_SIZE / 2),
+            top: touchPos.y - SCOPE_SIZE * 1.2, // Offset upwards so finger doesn't block it
+          }}
+        >
+          <svg
+             viewBox={`${aimCoords.x - (FULL_SIZE / SCOPE_ZOOM / 2)} ${aimCoords.y - (FULL_SIZE / SCOPE_ZOOM / 2)} ${FULL_SIZE / SCOPE_ZOOM} ${FULL_SIZE / SCOPE_ZOOM}`}
+             className="w-full h-full"
+             preserveAspectRatio="xMidYMid slice"
+          >
+            <TargetFaceContent />
+            {/* Render existing shots in scope too for reference? Optional. Let's skip to keep view clean for aiming. */}
+          </svg>
+          
+          {/* Reticle */}
+          <div className="absolute inset-0 flex items-center justify-center">
+             <div className="w-2 h-2 bg-red-500 rounded-full shadow-sm"></div>
+             <div className="absolute w-full h-[1px] bg-red-500/50"></div>
+             <div className="absolute h-full w-[1px] bg-red-500/50"></div>
+          </div>
+        </div>
+      )}
+
+      {!readOnly && !isTouching && existingShots.length === 0 && !lastShot && (
+        <div className="absolute top-4 left-0 right-0 text-center pointer-events-none">
+           <span className="px-3 py-1 bg-black/40 backdrop-blur rounded-full text-xs font-bold text-white/70 uppercase tracking-wider">
+             Touch & Drag to Aim
+           </span>
+        </div>
+      )}
     </div>
   );
 };
